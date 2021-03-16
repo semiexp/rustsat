@@ -2,18 +2,24 @@ extern crate rustsat;
 
 use rustsat::*;
 
-fn main() {
+fn run_dimacs() {
+    let (n_var, _, clauses) = dimacs::read_dimacs();
+
     let mut solver = solver::Solver::new();
-    let x = solver.new_var().literal();
-    let y = solver.new_var().literal();
-    let z = solver.new_var().literal();
+    let vars = (0..n_var).map(|_| solver.new_var()).collect::<Vec<_>>();
+    for clause in &clauses {
+        solver.add_clause(clause.into_iter().map(|&x| if x > 0 {
+            vars[(x - 1) as usize].literal()
+        } else {
+            !vars[(-x - 1) as usize].literal()
+        }).collect());
+    }
 
-    solver.add_clause(vec![x, y]);
-    solver.add_clause(vec![x, !y]);
-    solver.add_clause(vec![!x, !y]);
-    solver.add_clause(vec![y, !z]);
-    solver.add_clause(vec![!x, z]);
-
-    println!("{}", solver.solve());
+    println!("is_sat: {}", solver.solve());
     println!("{:?}", solver.assignment());
+}
+
+fn main() {
+    run_dimacs();
+    return;
 }
