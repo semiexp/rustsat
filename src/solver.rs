@@ -72,7 +72,7 @@ impl Solver {
                             if reason == REASON_BRANCH {
                                 self.reason[var_id] = REASON_BACKTRACK;
                                 self.assignment[var_id] = Value::Undet;
-                                if self.decide_checked(!lit, REASON_BACKTRACK) {
+                                if !self.decide_checked(!lit, REASON_BACKTRACK) {
                                     return false;
                                 }
                                 continue 'outer;
