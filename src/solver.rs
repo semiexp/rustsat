@@ -12,8 +12,8 @@ pub struct Solver {
     clauses: Vec<Clause>,
     queue: Vec<Literal>,
     reason: Vec<Reason>,
+    watcher_clauses: Vec<Vec<usize>>,
     queue_top: usize,
-    queue_end: usize,
 }
 
 impl Solver {
@@ -23,8 +23,8 @@ impl Solver {
             clauses: vec![],
             queue: vec![],
             reason: vec![REASON_UNDET],
+            watcher_clauses: vec![vec![]],
             queue_top: 0,
-            queue_end: 0,
         }
     }
 
@@ -32,6 +32,7 @@ impl Solver {
         let id = self.assignment.len() as i32;
         self.assignment.push(Value::Undet);
         self.reason.push(REASON_UNDET);
+        self.watcher_clauses.push(vec![]);
         Var(id)
     }
 
@@ -40,6 +41,10 @@ impl Solver {
     }
 
     pub fn add_clause(&mut self, clause: Clause) {
+        let clause_id = self.clauses.len();
+        for &lit in &clause {
+            self.watcher_clauses[lit.var_id()].push(clause_id);
+        }
         self.clauses.push(clause);
     }
 
@@ -67,11 +72,12 @@ impl Solver {
                 loop {
                     match self.queue.pop() {
                         Some(lit) => {
-                            let var_id = lit.var().0 as usize;
+                            let var_id = lit.var_id();
                             let reason = self.reason[var_id];
                             if reason == REASON_BRANCH {
                                 self.reason[var_id] = REASON_BACKTRACK;
                                 self.assignment[var_id] = Value::Undet;
+                                self.queue_top = self.queue.len();
                                 if !self.decide_checked(!lit, REASON_BACKTRACK) {
                                     return false;
                                 }
@@ -104,7 +110,6 @@ impl Solver {
     fn decide(&mut self, lit: Literal) {
         debug_assert!(self.get_assignment(lit.var()) == Value::Undet);
         self.queue.push(lit);
-        self.queue_end += 1;
     }
 
     fn decide_checked(&mut self, lit: Literal, reason: Reason) -> bool {
@@ -113,23 +118,25 @@ impl Solver {
             Value::True => true,
             Value::False => false,
             Value::Undet => {
-                let Var(var_id) = lit.var();
-                self.assignment[var_id as usize] = lit.value();
-                self.reason[var_id as usize] = reason;
+                let var_id = lit.var_id();
+                self.assignment[var_id] = lit.value();
+                self.reason[var_id] = reason;
                 self.queue.push(lit);
-                self.queue_end += 1;
                 true
             }
         }
     }
 
     fn propagate(&mut self) -> bool {
-        loop {
-            let mut updated = false;
+        while self.queue_top < self.queue.len() {
+            let lit = self.queue[self.queue_top];
+            let var_id = lit.var_id();
+
             'outer:
-            for i in 0..self.clauses.len() {
+            for i in 0..self.watcher_clauses[var_id].len() {
+                let watcher = self.watcher_clauses[var_id][i];
                 let mut undet = None;
-                for lit in &self.clauses[i] {
+                for lit in &self.clauses[watcher] {
                     match self.get_assignment_lit(*lit) {
                         Value::True => continue 'outer,
                         Value::False => continue,
@@ -141,18 +148,20 @@ impl Solver {
                 }
                 match undet {
                     Some(lit) => {
-                        updated = true;
-                        if !self.decide_checked(lit, i as i32) {
+                        if !self.decide_checked(lit, watcher as i32) {
+                            self.queue_top = self.queue.len();
                             return false;
                         }
                     }
-                    None => return false
+                    None => {
+                        self.queue_top = self.queue.len();
+                        return false;
+                    }
                 }
             }
-            if !updated {
-                return true;
-            }
+            self.queue_top += 1;
         }
+        true
     }
 
     fn undecided_var(&self) -> Option<Var> {

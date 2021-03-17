@@ -25,6 +25,10 @@ impl Literal {
         }
     }
 
+    pub fn var_id(self) -> usize {
+        self.var().0 as usize
+    }
+
     pub fn is_negated(self) -> bool {
         self.0 < 0
     }
