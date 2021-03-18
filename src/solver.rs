@@ -132,36 +132,33 @@ impl Solver {
             let lit = self.queue[self.queue_top];
             let var_id = lit.var_id();
 
-            'outer:
             for i in 0..self.watcher_clauses[var_id].len() {
-                let watcher = self.watcher_clauses[var_id][i];
-                let mut undet = None;
-                for lit in &self.clauses[watcher] {
-                    match self.get_assignment_lit(*lit) {
-                        Value::True => continue 'outer,
-                        Value::False => continue,
-                        Value::Undet => match undet {
-                            Some(_) => continue 'outer,
-                            None => undet = Some(*lit),
-                        }
-                    }
-                }
-                match undet {
-                    Some(lit) => {
-                        if !self.decide_checked(lit, watcher as i32) {
-                            self.queue_top = self.queue.len();
-                            return false;
-                        }
-                    }
-                    None => {
-                        self.queue_top = self.queue.len();
-                        return false;
-                    }
+                if !self.propagate_clause(self.watcher_clauses[var_id][i]) {
+                    self.queue_top = self.queue.len();
+                    return false;
                 }
             }
             self.queue_top += 1;
         }
         true
+    }
+
+    fn propagate_clause(&mut self, clause_id: usize) -> bool {
+        let mut undet = None;
+        for lit in &self.clauses[clause_id] {
+            match self.get_assignment_lit(*lit) {
+                Value::True => return true,
+                Value::False => continue,
+                Value::Undet => match undet {
+                    Some(_) => return true,
+                    None => undet = Some(*lit),
+                }
+            }
+        }
+        match undet {
+            Some(lit) => self.decide_checked(lit, clause_id as i32),
+            None => false
+        }
     }
 
     fn undecided_var(&self) -> Option<Var> {
