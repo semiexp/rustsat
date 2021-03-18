@@ -14,12 +14,12 @@ pub struct Literal(pub i32);
 
 impl Literal {
     pub fn new(Var(i): Var, negated: bool) -> Literal {
-        Literal(if negated { -i } else { i })
+        Literal(if negated { !i } else { i })
     }
 
     pub fn var(self) -> Var {
         if self.0 < 0 {
-            Var(-self.0)
+            Var(!self.0)
         } else {
             Var(self.0)
         }
@@ -46,12 +46,9 @@ impl Not for Literal {
     type Output = Literal;
 
     fn not(self) -> Literal {
-        Literal(-self.0)
+        Literal(!self.0)
     }
 }
-
-pub const VAR_INVALID: Var = Var(0);
-pub const LIT_INVALID: Literal = Literal(0);
 
 pub type Clause = Vec<Literal>;
 

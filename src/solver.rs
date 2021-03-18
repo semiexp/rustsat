@@ -19,11 +19,11 @@ pub struct Solver {
 impl Solver {
     pub fn new() -> Solver {
         Solver {
-            assignment: vec![Value::Undet],
+            assignment: vec![],
             clauses: vec![],
             queue: vec![],
-            reason: vec![REASON_UNDET],
-            watcher_clauses: vec![vec![]],
+            reason: vec![],
+            watcher_clauses: vec![],
             queue_top: 0,
         }
     }
@@ -37,7 +37,7 @@ impl Solver {
     }
 
     pub fn num_var(&self) -> i32 {
-        self.assignment.len() as i32 - 1
+        self.assignment.len() as i32
     }
 
     pub fn add_clause(&mut self, clause: Clause) {
@@ -162,7 +162,7 @@ impl Solver {
     }
 
     fn undecided_var(&self) -> Option<Var> {
-        for i in 1..self.assignment.len() {
+        for i in 0..self.assignment.len() {
             if self.assignment[i] == Value::Undet {
                 return Some(Var(i as i32));
             }
