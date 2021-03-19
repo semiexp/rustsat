@@ -1,12 +1,20 @@
 use crate::*;
 
-type Reason = i32;
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+enum Reason {
+    Undet,
+    Branch,
+    Clause(usize),
+}
 
-const REASON_UNDET: Reason = -2;
-const REASON_BRANCH: Reason = -1;
-const REASON_BACKTRACK: Reason = -3;
-
-type Conflict = usize;  // id of the conflicting clause
+impl Reason {
+    fn is_clause(self) -> bool {
+        match self {
+            Reason::Clause(_) => true,
+            _ => false,
+        }
+    }
+}
 
 #[derive(Debug)]
 pub struct Solver {
@@ -33,7 +41,7 @@ impl Solver {
     pub fn new_var(&mut self) -> Var {
         let id = self.assignment.len() as i32;
         self.assignment.push(Value::Undet);
-        self.reason.push(REASON_UNDET);
+        self.reason.push(Reason::Undet);
         self.watcher_clauses.push(vec![]);
         Var(id)
     }
@@ -65,9 +73,9 @@ impl Solver {
                         Some(lit) => {
                             let var_id = lit.var_id();
                             let reason = self.reason[var_id];
-                            self.reason[var_id] = REASON_UNDET;
+                            self.reason[var_id] = Reason::Undet;
                             self.assignment[var_id] = Value::Undet;
-                            if reason == REASON_BRANCH {
+                            if reason == Reason::Branch {
                                 let mut enq = None;
                                 for &lit in &learnt {
                                     match self.get_assignment_lit(lit) {
@@ -82,7 +90,7 @@ impl Solver {
                                 assert!(enq.is_some());
                                 self.queue_top = self.queue.len();
                                 self.add_clause(learnt);
-                                self.decide_checked(enq.unwrap(), self.clauses.len() as i32 - 1);
+                                self.decide_checked(enq.unwrap(), Reason::Clause(self.clauses.len() - 1));
                                 continue 'outer;
                             }
                         }
@@ -95,7 +103,7 @@ impl Solver {
                 let pivot = self.undecided_var();
                 match pivot {
                     Some(var) => {
-                        self.decide_checked(Literal::new(var, false), REASON_BRANCH);
+                        self.decide_checked(Literal::new(var, false), Reason::Branch);
                         continue 'outer;
                     }
                     None => {
@@ -125,7 +133,7 @@ impl Solver {
 
     fn clear(&mut self, var: Var) {
         let var_id = var.0 as usize;
-        self.reason[var_id] = REASON_UNDET;
+        self.reason[var_id] = Reason::Undet;
         self.assignment[var_id] = Value::Undet;
     }
 
@@ -144,7 +152,7 @@ impl Solver {
         }
     }
 
-    fn propagate(&mut self) -> Option<Conflict> {
+    fn propagate(&mut self) -> Option<Reason> {
         while self.queue_top < self.queue.len() {
             let lit = self.queue[self.queue_top];
             let var_id = lit.var_id();
@@ -153,7 +161,7 @@ impl Solver {
                 let clause_id = self.watcher_clauses[var_id][i];
                 if !self.propagate_clause(clause_id) {
                     self.queue_top = self.queue.len();
-                    return Some(clause_id);
+                    return Some(Reason::Clause(clause_id));
                 }
             }
             self.queue_top += 1;
@@ -161,7 +169,7 @@ impl Solver {
         None
     }
 
-    fn analyze(&mut self, mut conflict: Conflict) -> Clause {
+    fn analyze(&mut self, mut conflict: Reason) -> Clause {
         let mut p: Option<Literal> = None;
         let mut visited = vec![false; self.num_var() as usize];
         let mut polarity = vec![Literal(0); self.num_var() as usize];
@@ -171,6 +179,10 @@ impl Solver {
             }
             let mut reason = vec![];
             {
+                let conflict = match conflict {
+                    Reason::Clause(c) => c,
+                    _ => panic!(),
+                };
                 for &lit in &self.clauses[conflict] {
                     if Some(lit) != p {
                         debug_assert!(p.is_none() || p.unwrap().var() != lit.var());
@@ -186,17 +198,17 @@ impl Solver {
             while !visited[self.queue[self.queue.len() - 1].var_id()] {
                 let last = self.queue.pop();
                 self.clear(last.unwrap().var());
-                debug_assert!(self.reason[last.unwrap().var_id()] >= 0);
+                debug_assert!(self.reason[last.unwrap().var_id()].is_clause());
             }
             debug_assert!(!self.queue.is_empty());
-            if self.reason[self.queue[self.queue.len() - 1].var_id()] < 0 {
+            if self.reason[self.queue[self.queue.len() - 1].var_id()] == Reason::Branch {
                 break;
             }
             let pb = self.queue[self.queue.len() - 1];
             let var_id = pb.var_id();
             p = Some(pb);
-            debug_assert!(self.reason[var_id] >= 0);
-            conflict = self.reason[var_id] as usize;
+            debug_assert!(self.reason[var_id].is_clause());
+            conflict = self.reason[var_id];
             self.clear(pb.var());
             self.queue.pop();
         }
@@ -222,7 +234,7 @@ impl Solver {
             }
         }
         match undet {
-            Some(lit) => self.decide_checked(lit, clause_id as i32),
+            Some(lit) => self.decide_checked(lit, Reason::Clause(clause_id)),
             None => false
         }
     }
