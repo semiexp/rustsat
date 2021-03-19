@@ -6,6 +6,8 @@ const REASON_UNDET: Reason = -2;
 const REASON_BRANCH: Reason = -1;
 const REASON_BACKTRACK: Reason = -3;
 
+type Conflict = usize;  // id of the conflicting clause
+
 #[derive(Debug)]
 pub struct Solver {
     assignment: Vec<Value>,
@@ -55,7 +57,40 @@ impl Solver {
     pub fn solve(&mut self) -> bool {
         'outer:
         loop {
-            if self.propagate() {
+            if let Some(conflict) = self.propagate() {
+                // inconsistent
+                let learnt = self.analyze(conflict);
+                loop {
+                    match self.queue.pop() {
+                        Some(lit) => {
+                            let var_id = lit.var_id();
+                            let reason = self.reason[var_id];
+                            self.reason[var_id] = REASON_UNDET;
+                            self.assignment[var_id] = Value::Undet;
+                            if reason == REASON_BRANCH {
+                                let mut enq = None;
+                                for &lit in &learnt {
+                                    match self.get_assignment_lit(lit) {
+                                        Value::True => panic!(),
+                                        Value::False => (),
+                                        Value::Undet => match enq {
+                                            Some(_) => panic!(),
+                                            None => enq = Some(lit),
+                                        }
+                                    }
+                                }
+                                assert!(enq.is_some());
+                                self.queue_top = self.queue.len();
+                                self.add_clause(learnt);
+                                self.decide_checked(enq.unwrap(), self.clauses.len() as i32 - 1);
+                                continue 'outer;
+                            }
+                        }
+                        None => break
+                    }
+                }
+                return false;
+            } else {
                 // branch
                 let pivot = self.undecided_var();
                 match pivot {
@@ -67,30 +102,6 @@ impl Solver {
                         return true;
                     }
                 }
-            } else {
-                // inconsistent
-                loop {
-                    match self.queue.pop() {
-                        Some(lit) => {
-                            let var_id = lit.var_id();
-                            let reason = self.reason[var_id];
-                            if reason == REASON_BRANCH {
-                                self.reason[var_id] = REASON_BACKTRACK;
-                                self.assignment[var_id] = Value::Undet;
-                                self.queue_top = self.queue.len();
-                                if !self.decide_checked(!lit, REASON_BACKTRACK) {
-                                    return false;
-                                }
-                                continue 'outer;
-                            } else {
-                                self.reason[var_id] = REASON_UNDET;
-                                self.assignment[var_id] = Value::Undet;
-                            }
-                        }
-                        None => break
-                    }
-                }
-                return false;
             }
         }
     }
@@ -112,6 +123,12 @@ impl Solver {
         self.queue.push(lit);
     }
 
+    fn clear(&mut self, var: Var) {
+        let var_id = var.0 as usize;
+        self.reason[var_id] = REASON_UNDET;
+        self.assignment[var_id] = Value::Undet;
+    }
+
     fn decide_checked(&mut self, lit: Literal, reason: Reason) -> bool {
         let current = self.get_assignment_lit(lit);
         match current {
@@ -127,20 +144,69 @@ impl Solver {
         }
     }
 
-    fn propagate(&mut self) -> bool {
+    fn propagate(&mut self) -> Option<Conflict> {
         while self.queue_top < self.queue.len() {
             let lit = self.queue[self.queue_top];
             let var_id = lit.var_id();
 
             for i in 0..self.watcher_clauses[var_id].len() {
-                if !self.propagate_clause(self.watcher_clauses[var_id][i]) {
+                let clause_id = self.watcher_clauses[var_id][i];
+                if !self.propagate_clause(clause_id) {
                     self.queue_top = self.queue.len();
-                    return false;
+                    return Some(clause_id);
                 }
             }
             self.queue_top += 1;
         }
-        true
+        None
+    }
+
+    fn analyze(&mut self, mut conflict: Conflict) -> Clause {
+        let mut p: Option<Literal> = None;
+        let mut visited = vec![false; self.num_var() as usize];
+        let mut polarity = vec![Literal(0); self.num_var() as usize];
+        while !self.queue.is_empty() {
+            if let Some(l) = p {
+                visited[l.var_id()] = false;
+            }
+            let mut reason = vec![];
+            {
+                for &lit in &self.clauses[conflict] {
+                    if Some(lit) != p {
+                        debug_assert!(p.is_none() || p.unwrap().var() != lit.var());
+                        reason.push(lit);
+                    }
+                }
+            }
+            for lit in reason {
+                let var_id = lit.var_id();
+                visited[var_id] = true;
+                polarity[var_id] = lit;
+            }
+            while !visited[self.queue[self.queue.len() - 1].var_id()] {
+                let last = self.queue.pop();
+                self.clear(last.unwrap().var());
+                debug_assert!(self.reason[last.unwrap().var_id()] >= 0);
+            }
+            debug_assert!(!self.queue.is_empty());
+            if self.reason[self.queue[self.queue.len() - 1].var_id()] < 0 {
+                break;
+            }
+            let pb = self.queue[self.queue.len() - 1];
+            let var_id = pb.var_id();
+            p = Some(pb);
+            debug_assert!(self.reason[var_id] >= 0);
+            conflict = self.reason[var_id] as usize;
+            self.clear(pb.var());
+            self.queue.pop();
+        }
+        let mut ret = vec![];
+        for i in 0..visited.len() {
+            if visited[i] {
+                ret.push(polarity[i]);
+            }
+        }
+        ret
     }
 
     fn propagate_clause(&mut self, clause_id: usize) -> bool {
