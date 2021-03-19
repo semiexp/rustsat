@@ -269,15 +269,6 @@ impl Solver {
             None => false
         }
     }
-
-    fn undecided_var(&self) -> Option<Var> {
-        for i in 0..self.assignment.len() {
-            if self.assignment[i] == Value::Undet {
-                return Some(Var(i as i32));
-            }
-        }
-        None
-    }
 }
 
 const ACTIVITY_THRESHOLD: f64 = 1e100;
@@ -313,7 +304,7 @@ impl Activity {
 
     fn rescale(&mut self) {
         for a in &mut self.activity {
-            *a *= (1.0 / ACTIVITY_THRESHOLD);
+            *a *= 1.0 / ACTIVITY_THRESHOLD;
         }
         self.var_inc /= ACTIVITY_THRESHOLD;
     }

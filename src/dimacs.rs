@@ -1,4 +1,4 @@
-use std::io::{BufRead, Read};
+use std::io::BufRead;
 
 pub fn read_dimacs() -> (i32, i32, Vec<Vec<i32>>) {
     let stdin = std::io::stdin();
