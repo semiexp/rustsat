@@ -205,6 +205,7 @@ impl Solver {
         let mut p: Option<Literal> = None;
         let mut visited = vec![false; self.num_var() as usize];
         let mut polarity = vec![Literal(0); self.num_var() as usize];
+        let mut counter = 0;
         while !self.queue.is_empty() {
             if let Some(l) = p {
                 visited[l.var_id()] = false;
@@ -224,6 +225,9 @@ impl Solver {
             }
             for lit in reason {
                 let var_id = lit.var_id();
+                if !visited[var_id] && self.level[var_id] == self.trail_boundary.len() as i32 {
+                    counter += 1;
+                }
                 visited[var_id] = true;
                 polarity[var_id] = lit;
             }
@@ -231,9 +235,11 @@ impl Solver {
                 self.pop_queue();
             }
             debug_assert!(!self.queue.is_empty());
-            if self.reason[self.queue[self.queue.len() - 1].var_id()] == Reason::Branch {
+            counter -= 1;
+            if counter == 0 {
                 break;
             }
+            debug_assert!(self.reason[self.queue[self.queue.len() - 1].var_id()] != Reason::Branch);
             let pb = self.queue[self.queue.len() - 1];
             let var_id = pb.var_id();
             p = Some(pb);
