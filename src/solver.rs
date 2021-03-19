@@ -25,6 +25,8 @@ pub struct Solver {
     watcher_clauses: Vec<Vec<usize>>,
     queue_top: usize,
     var_activity: Activity,
+    trail_boundary: Vec<usize>,
+    level: Vec<i32>,
 }
 
 impl Solver {
@@ -37,6 +39,8 @@ impl Solver {
             watcher_clauses: vec![],
             queue_top: 0,
             var_activity: Activity::new(1.0f64 / 0.95f64),
+            trail_boundary: vec![],
+            level: vec![],
         }
     }
 
@@ -46,6 +50,7 @@ impl Solver {
         self.reason.push(Reason::Undet);
         self.watcher_clauses.push(vec![]);
         self.var_activity.add_entry();
+        self.level.push(-1);
         Var(id)
     }
 
@@ -72,34 +77,39 @@ impl Solver {
                 // inconsistent
                 let learnt = self.analyze(conflict);
                 loop {
-                    match self.queue.pop() {
-                        Some(lit) => {
-                            let var_id = lit.var_id();
-                            let reason = self.reason[var_id];
-                            self.reason[var_id] = Reason::Undet;
-                            self.assignment[var_id] = Value::Undet;
-                            if reason == Reason::Branch {
-                                let mut enq = None;
-                                for &lit in &learnt {
-                                    match self.get_assignment_lit(lit) {
-                                        Value::True => panic!(),
-                                        Value::False => (),
-                                        Value::Undet => match enq {
-                                            Some(_) => panic!(),
-                                            None => enq = Some(lit),
-                                        }
-                                    }
-                                    self.var_activity.bump(lit.var_id());
+                    if self.queue.is_empty() {
+                        break;
+                    }
+                    let lit = self.queue[self.queue.len() - 1];
+                    let var_id = lit.var_id();
+                    let reason = self.reason[var_id];
+                    self.pop_queue();
+                    if reason == Reason::Branch {
+                        let mut enq = None;
+                        let mut max_level = 1;
+                        for &lit in &learnt {
+                            match self.get_assignment_lit(lit) {
+                                Value::True => panic!(),
+                                Value::False => {
+                                    max_level = max_level.max(self.level[lit.var_id()]);
+                                },
+                                Value::Undet => match enq {
+                                    Some(_) => panic!(),
+                                    None => enq = Some(lit),
                                 }
-                                assert!(enq.is_some());
-                                self.queue_top = self.queue.len();
-                                self.add_clause(learnt);
-                                self.decide_checked(enq.unwrap(), Reason::Clause(self.clauses.len() - 1));
-                                self.var_activity.decay();
-                                continue 'outer;
                             }
+                            self.var_activity.bump(lit.var_id());
                         }
-                        None => break
+                        assert!(enq.is_some());
+                        debug_assert!(self.queue.len() == self.trail_boundary[self.trail_boundary.len() - 1]);
+                        while self.trail_boundary.len() as i32 > max_level {
+                            self.pop_level();
+                        }
+                        self.queue_top = self.queue.len();
+                        self.add_clause(learnt);
+                        self.decide_checked(enq.unwrap(), Reason::Clause(self.clauses.len() - 1));
+                        self.var_activity.decay();
+                        continue 'outer;
                     }
                 }
                 return false;
@@ -108,7 +118,7 @@ impl Solver {
                 let pivot = self.var_activity.find_undecided(self);
                 match pivot {
                     Some(var) => {
-                        self.decide_checked(Literal::new(var, false), Reason::Branch);
+                        self.assume(Literal::new(var, false));
                         continue 'outer;
                     }
                     None => {
@@ -131,17 +141,33 @@ impl Solver {
         }
     }
 
-    fn decide(&mut self, lit: Literal) {
-        debug_assert!(self.get_assignment(lit.var()) == Value::Undet);
-        self.queue.push(lit);
+    fn assume(&mut self, lit: Literal) {
+        self.trail_boundary.push(self.queue.len());
+        assert!(self.decide_checked(lit, Reason::Branch));
     }
 
     fn clear(&mut self, var: Var) {
         let var_id = var.0 as usize;
         self.reason[var_id] = Reason::Undet;
         self.assignment[var_id] = Value::Undet;
+        self.level[var_id] = -1;
     }
 
+    fn pop_queue(&mut self) {
+        // Popping beyond the trail boundary is prohibited
+        assert!(self.trail_boundary[self.trail_boundary.len() - 1] != self.queue.len());
+
+        let var = self.queue.pop().unwrap().var();
+        self.clear(var);
+    }
+
+    fn pop_level(&mut self) {
+        debug_assert!(self.trail_boundary[self.trail_boundary.len() - 1] <= self.queue.len());
+        for _ in 0..(self.queue.len() - self.trail_boundary[self.trail_boundary.len() - 1]) {
+            self.pop_queue();
+        }
+        self.trail_boundary.pop();
+    }
     fn decide_checked(&mut self, lit: Literal, reason: Reason) -> bool {
         let current = self.get_assignment_lit(lit);
         match current {
@@ -151,6 +177,7 @@ impl Solver {
                 let var_id = lit.var_id();
                 self.assignment[var_id] = lit.value();
                 self.reason[var_id] = reason;
+                self.level[var_id] = self.trail_boundary.len() as i32;
                 self.queue.push(lit);
                 true
             }
@@ -201,9 +228,7 @@ impl Solver {
                 polarity[var_id] = lit;
             }
             while !visited[self.queue[self.queue.len() - 1].var_id()] {
-                let last = self.queue.pop();
-                self.clear(last.unwrap().var());
-                debug_assert!(self.reason[last.unwrap().var_id()].is_clause());
+                self.pop_queue();
             }
             debug_assert!(!self.queue.is_empty());
             if self.reason[self.queue[self.queue.len() - 1].var_id()] == Reason::Branch {
@@ -214,8 +239,7 @@ impl Solver {
             p = Some(pb);
             debug_assert!(self.reason[var_id].is_clause());
             conflict = self.reason[var_id];
-            self.clear(pb.var());
-            self.queue.pop();
+            self.pop_queue();
         }
         let mut ret = vec![];
         for i in 0..visited.len() {
@@ -239,7 +263,9 @@ impl Solver {
             }
         }
         match undet {
-            Some(lit) => self.decide_checked(lit, Reason::Clause(clause_id)),
+            Some(lit) => {
+                self.decide_checked(lit, Reason::Clause(clause_id))
+            }
             None => false
         }
     }
