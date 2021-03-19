@@ -24,6 +24,7 @@ pub struct Solver {
     reason: Vec<Reason>,
     watcher_clauses: Vec<Vec<usize>>,
     queue_top: usize,
+    var_activity: Activity,
 }
 
 impl Solver {
@@ -35,6 +36,7 @@ impl Solver {
             reason: vec![],
             watcher_clauses: vec![],
             queue_top: 0,
+            var_activity: Activity::new(1.0f64 / 0.95f64),
         }
     }
 
@@ -43,6 +45,7 @@ impl Solver {
         self.assignment.push(Value::Undet);
         self.reason.push(Reason::Undet);
         self.watcher_clauses.push(vec![]);
+        self.var_activity.add_entry();
         Var(id)
     }
 
@@ -86,11 +89,13 @@ impl Solver {
                                             None => enq = Some(lit),
                                         }
                                     }
+                                    self.var_activity.bump(lit.var_id());
                                 }
                                 assert!(enq.is_some());
                                 self.queue_top = self.queue.len();
                                 self.add_clause(learnt);
                                 self.decide_checked(enq.unwrap(), Reason::Clause(self.clauses.len() - 1));
+                                self.var_activity.decay();
                                 continue 'outer;
                             }
                         }
@@ -100,7 +105,7 @@ impl Solver {
                 return false;
             } else {
                 // branch
-                let pivot = self.undecided_var();
+                let pivot = self.var_activity.find_undecided(self);
                 match pivot {
                     Some(var) => {
                         self.decide_checked(Literal::new(var, false), Reason::Branch);
@@ -246,5 +251,59 @@ impl Solver {
             }
         }
         None
+    }
+}
+
+const ACTIVITY_THRESHOLD: f64 = 1e100;
+
+#[derive(Debug)]
+struct Activity {
+    activity: Vec<f64>,
+    var_inc: f64,
+    var_decay: f64,
+}
+
+impl Activity {
+    fn new(var_decay: f64) -> Activity {
+        Activity {
+            activity: vec![],
+            var_inc: 1.0,
+            var_decay,
+        }
+    }
+
+    fn add_entry(&mut self) {
+        self.activity.push(0.0f64);
+    }
+    fn bump(&mut self, i: usize) {
+        self.activity[i] += self.var_inc;
+        if self.activity[i] > ACTIVITY_THRESHOLD {
+            self.rescale();
+        }
+    }
+    fn decay(&mut self) {
+        self.var_inc *= self.var_decay;
+    }
+
+    fn rescale(&mut self) {
+        for a in &mut self.activity {
+            *a *= (1.0 / ACTIVITY_THRESHOLD);
+        }
+        self.var_inc /= ACTIVITY_THRESHOLD;
+    }
+
+    fn find_undecided(&self, solver: &Solver) -> Option<Var> {
+        let mut best: Option<usize> = None;
+        for i in 0..self.activity.len() {
+            if solver.assignment[i] == Value::Undet {
+                if match best {
+                    Some(prev) => self.activity[prev] < self.activity[i],
+                    None => true,
+                } {
+                    best = Some(i);
+                }
+            }
+        }
+        best.map(|i| Var(i as i32))
     }
 }
