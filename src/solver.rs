@@ -48,7 +48,11 @@ impl Solver {
         let id = self.assignment.len() as i32;
         self.assignment.push(Value::Undet);
         self.reason.push(Reason::Undet);
+
+        // each for positive/negative literals
         self.watcher_clauses.push(vec![]);
+        self.watcher_clauses.push(vec![]);
+
         self.var_activity.add_entry();
         self.level.push(-1);
         Var(id)
@@ -61,7 +65,7 @@ impl Solver {
     pub fn add_clause(&mut self, clause: Clause) {
         let clause_id = self.clauses.len();
         for &lit in &clause {
-            self.watcher_clauses[lit.var_id()].push(clause_id);
+            self.watcher_clauses[(!lit).watch_id()].push(clause_id);
         }
         self.clauses.push(clause);
     }
@@ -187,10 +191,10 @@ impl Solver {
     fn propagate(&mut self) -> Option<Reason> {
         while self.queue_top < self.queue.len() {
             let lit = self.queue[self.queue_top];
-            let var_id = lit.var_id();
 
-            for i in 0..self.watcher_clauses[var_id].len() {
-                let clause_id = self.watcher_clauses[var_id][i];
+            let watch_id = lit.watch_id();
+            for i in 0..self.watcher_clauses[watch_id].len() {
+                let clause_id = self.watcher_clauses[watch_id][i];
                 if !self.propagate_clause(clause_id) {
                     self.queue_top = self.queue.len();
                     return Some(Reason::Clause(clause_id));

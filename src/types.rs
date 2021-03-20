@@ -40,6 +40,14 @@ impl Literal {
             Value::True
         }
     }
+
+    pub fn watch_id(self) -> usize {
+        if self.0 < 0 {
+            ((!self.0) * 2 + 1) as usize
+        } else {
+            (self.0 * 2) as usize
+        }
+    }
 }
 
 impl Not for Literal {
