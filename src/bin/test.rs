@@ -15,11 +15,13 @@ fn run_dimacs() {
         }).collect());
     }
 
-    println!("is_sat: {}", solver.solve());
-    println!("{:?}", solver.assignment());
+    println!("{}", if solver.solve() { "SAT" } else { "UNSAT" });
 }
 
 fn main() {
+    let start = std::time::Instant::now();
     run_dimacs();
+    let elapsed = start.elapsed().as_micros() as f64 / 1e3;
+    println!("Cost: {:.3}[ms]", elapsed);
     return;
 }
