@@ -208,8 +208,9 @@ impl Solver {
     fn analyze(&mut self, mut conflict: Reason) -> Clause {
         let mut p: Option<Literal> = None;
         let mut visited = vec![false; self.num_var() as usize];
-        let mut polarity = vec![Literal(0); self.num_var() as usize];
         let mut counter = 0;
+
+        let mut ret = vec![];
         while !self.queue.is_empty() {
             if let Some(l) = p {
                 visited[l.var_id()] = false;
@@ -229,34 +230,34 @@ impl Solver {
             }
             for lit in reason {
                 let var_id = lit.var_id();
-                if !visited[var_id] && self.level[var_id] == self.trail_boundary.len() as i32 {
-                    counter += 1;
+                if !visited[var_id] {
+                    if self.level[var_id] == self.trail_boundary.len() as i32 {
+                        counter += 1;
+                    } else {
+                        ret.push(lit);
+                    }
+                    visited[var_id] = true;
                 }
-                visited[var_id] = true;
-                polarity[var_id] = lit;
             }
             while !visited[self.queue[self.queue.len() - 1].var_id()] {
                 self.pop_queue();
             }
             debug_assert!(!self.queue.is_empty());
-            counter -= 1;
-            if counter == 0 {
-                break;
-            }
-            debug_assert!(self.reason[self.queue[self.queue.len() - 1].var_id()] != Reason::Branch);
             let pb = self.queue[self.queue.len() - 1];
             let var_id = pb.var_id();
             p = Some(pb);
+            counter -= 1;
+            if counter == 0 {
+                ret.push(!p.unwrap());
+                break;
+            }
+            debug_assert!(self.reason[self.queue[self.queue.len() - 1].var_id()] != Reason::Branch);
             debug_assert!(self.reason[var_id].is_clause());
             conflict = self.reason[var_id];
             self.pop_queue();
         }
-        let mut ret = vec![];
-        for i in 0..visited.len() {
-            if visited[i] {
-                ret.push(polarity[i]);
-            }
-        }
+        // TODO: this must be unnecessary but removing this worsens the performance significantly
+        ret.sort_by(|x, y| x.var_id().cmp(&(y.var_id())));
         ret
     }
 
