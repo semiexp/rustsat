@@ -11,8 +11,7 @@ pub fn read_dimacs() -> (i32, i32, Vec<Vec<i32>>) {
     let n_clause;
 
     {
-        buffer.pop();
-        let tokens = buffer.split(" ").collect::<Vec<&str>>();
+        let tokens = buffer.trim_end_matches('\n').trim_end_matches('\r').split(" ").collect::<Vec<&str>>();
         assert_eq!(tokens.len(), 4);
         assert_eq!(tokens[0], "p");
         assert_eq!(tokens[1], "cnf");
@@ -26,8 +25,7 @@ pub fn read_dimacs() -> (i32, i32, Vec<Vec<i32>>) {
     for _ in 0..n_clause {
         buffer.clear();
         handle.read_line(&mut buffer).unwrap();
-        buffer.pop();
-        let mut tokens = buffer.split(" ").map(|x| x.parse::<i32>().unwrap()).collect::<Vec<_>>();
+        let mut tokens = buffer.trim_end_matches('\n').trim_end_matches('\r').split(" ").map(|x| x.parse::<i32>().unwrap()).collect::<Vec<_>>();
         assert_eq!(tokens.pop(), Some(0));
         clauses.push(tokens);
     }
