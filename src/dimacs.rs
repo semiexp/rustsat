@@ -1,8 +1,7 @@
-use std::io::BufRead;
+use std::io::{BufRead, Read};
 
-pub fn read_dimacs() -> (i32, i32, Vec<Vec<i32>>) {
-    let stdin = std::io::stdin();
-    let mut handle = std::io::BufReader::new(stdin.lock());
+pub fn read_dimacs<R: Read>(input: &mut R) -> (i32, i32, Vec<Vec<i32>>) {
+    let mut handle = std::io::BufReader::new(input);
 
     let mut buffer = String::new();
     handle.read_line(&mut buffer).unwrap();
