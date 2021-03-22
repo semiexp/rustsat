@@ -62,12 +62,21 @@ impl Solver {
         self.assignment.len() as i32
     }
 
-    pub fn add_clause(&mut self, clause: Clause) {
+    pub fn add_clause(&mut self, clause: Clause) -> bool {
         let clause_id = self.clauses.len();
-        for &lit in &clause {
-            self.watcher_clauses[(!lit).watch_id()].push(clause_id);
+        if clause.len() == 0 {
+            return false;
+        }
+        if clause.len() == 1 {
+            return self.decide_checked(clause[0], Reason::Branch /* TODO */);
+        }
+        // TODO: choose better watcher for learnt clauses
+        self.watcher_clauses[(!clause[0]).watch_id()].push(clause_id);
+        if clause.len() >= 2 {
+            self.watcher_clauses[(!clause[1]).watch_id()].push(clause_id);
         }
         self.clauses.push(clause);
+        true
     }
 
     pub fn assignment(&self) -> Vec<Value> {
@@ -78,6 +87,10 @@ impl Solver {
         'outer:
         loop {
             if let Some(conflict) = self.propagate() {
+                if self.trail_boundary.len() == 0 {
+                    return false;
+                }
+
                 // inconsistent
                 let learnt = self.analyze(conflict);
                 loop {
@@ -90,7 +103,7 @@ impl Solver {
                     self.pop_queue();
                     if reason == Reason::Branch {
                         let mut enq = None;
-                        let mut max_level = 1;
+                        let mut max_level = 0;
                         for &lit in &learnt {
                             match self.get_assignment_lit(lit) {
                                 Value::True => panic!(),
@@ -110,8 +123,12 @@ impl Solver {
                             self.pop_level();
                         }
                         self.queue_top = self.queue.len();
-                        self.add_clause(learnt);
-                        self.decide_checked(enq.unwrap(), Reason::Clause(self.clauses.len() - 1));
+                        if learnt.len() >= 2 {
+                            self.add_clause(learnt);
+                            self.decide_checked(enq.unwrap(), Reason::Clause(self.clauses.len() - 1));
+                        } else {
+                            self.add_clause(learnt);
+                        }
                         self.var_activity.decay();
                         continue 'outer;
                     }
@@ -193,9 +210,16 @@ impl Solver {
             let lit = self.queue[self.queue_top];
 
             let watch_id = lit.watch_id();
-            for i in 0..self.watcher_clauses[watch_id].len() {
-                let clause_id = self.watcher_clauses[watch_id][i];
-                if !self.propagate_clause(clause_id) {
+            let mut watchers = vec![];
+            std::mem::swap(&mut self.watcher_clauses[watch_id], &mut watchers);
+
+            for i in 0..watchers.len() {
+                let clause_id = watchers[i];
+                if !self.propagate_clause(clause_id, lit) {
+                    // reinsert remaining watchers
+                    for j in (i + 1)..watchers.len() {
+                        self.watcher_clauses[watch_id].push(watchers[j]);
+                    }
                     self.queue_top = self.queue.len();
                     return Some(Reason::Clause(clause_id));
                 }
@@ -261,24 +285,27 @@ impl Solver {
         ret
     }
 
-    fn propagate_clause(&mut self, clause_id: usize) -> bool {
-        let mut undet = None;
-        for lit in &self.clauses[clause_id] {
-            match self.get_assignment_lit(*lit) {
-                Value::True => return true,
-                Value::False => continue,
-                Value::Undet => match undet {
-                    Some(_) => return true,
-                    None => undet = Some(*lit),
-                }
+    fn propagate_clause(&mut self, clause_id: usize, p: Literal) -> bool {
+        if self.clauses[clause_id][0] == !p {
+            self.clauses[clause_id].swap(0, 1);
+        }
+        debug_assert!(self.clauses[clause_id][1] == !p);
+
+        if self.get_assignment_lit(self.clauses[clause_id][0]) == Value::True {
+            self.watcher_clauses[p.watch_id()].push(clause_id);
+            return true;
+        }
+
+        for i in 2..self.clauses[clause_id].len() {
+            if self.get_assignment_lit(self.clauses[clause_id][i]) != Value::False {
+                self.clauses[clause_id].swap(1, i);
+                self.watcher_clauses[(!self.clauses[clause_id][1]).watch_id()].push(clause_id);
+                return true;
             }
         }
-        match undet {
-            Some(lit) => {
-                self.decide_checked(lit, Reason::Clause(clause_id))
-            }
-            None => false
-        }
+
+        self.watcher_clauses[p.watch_id()].push(clause_id);
+        return self.decide_checked(self.clauses[clause_id][0], Reason::Clause(clause_id))
     }
 }
 
