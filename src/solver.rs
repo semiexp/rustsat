@@ -21,6 +21,23 @@ impl Reason {
     }
 }
 
+#[derive(Debug, Clone, Copy)]
+pub struct SolverStats {
+    pub n_restart: u64,
+    pub n_conflict: u64,
+    pub n_propagation: u64,
+}
+
+impl SolverStats {
+    fn new() -> SolverStats {
+        SolverStats {
+            n_restart: 0,
+            n_conflict: 0,
+            n_propagation: 0,
+        }
+    }
+}
+
 #[derive(Debug)]
 pub struct Solver {
     assignment: Vec<Value>,
@@ -35,6 +52,7 @@ pub struct Solver {
     level: Vec<i32>,
     cla_erased: Vec<bool>,
     learnt: Vec<usize>,
+    stats: SolverStats,
 }
 
 impl Solver {
@@ -52,7 +70,12 @@ impl Solver {
             level: vec![],
             cla_erased: vec![],
             learnt: vec![],
+            stats: SolverStats::new(),
         }
+    }
+
+    pub fn stats(&self) -> SolverStats {
+        self.stats
     }
 
     pub fn new_var(&mut self) -> Var {
@@ -113,6 +136,7 @@ impl Solver {
         let mut learnt_threshold = self.clauses.len() as u64 / 3;
 
         loop {
+            self.stats.n_restart += 1;
             match self.search(confl_threshold, learnt_threshold) {
                 Value::True => return true,
                 Value::False => return false,
@@ -133,6 +157,8 @@ impl Solver {
                 }
 
                 n_confl += 1;
+                self.stats.n_conflict += 1;
+
                 // inconsistent
                 let learnt = self.analyze(conflict);
                 self.pop_level();
@@ -249,6 +275,7 @@ impl Solver {
     fn propagate(&mut self) -> Option<Reason> {
         while self.queue_top < self.queue.len() {
             let lit = self.queue[self.queue_top];
+            self.stats.n_propagation += 1;
 
             let watch_id = lit.watch_id();
             let mut watchers = vec![];

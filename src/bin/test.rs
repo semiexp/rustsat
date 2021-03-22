@@ -16,6 +16,7 @@ fn run_dimacs() {
     }
 
     println!("{}", if solver.solve() { "SAT" } else { "UNSAT" });
+    println!("{:?}", solver.stats());
 }
 
 fn main() {
