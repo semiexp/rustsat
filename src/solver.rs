@@ -1,4 +1,5 @@
 use crate::*;
+use std::ops::Index;
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 enum Reason {
@@ -25,8 +26,11 @@ pub struct Solver {
     watcher_clauses: Vec<Vec<usize>>,
     queue_top: usize,
     var_activity: Activity,
+    cla_activity: Activity,
     trail_boundary: Vec<usize>,
     level: Vec<i32>,
+    cla_erased: Vec<bool>,
+    learnt: Vec<usize>,
 }
 
 impl Solver {
@@ -39,8 +43,11 @@ impl Solver {
             watcher_clauses: vec![],
             queue_top: 0,
             var_activity: Activity::new(1.0f64 / 0.95f64),
+            cla_activity: Activity::new(1.0f64 / 0.999f64),
             trail_boundary: vec![],
             level: vec![],
+            cla_erased: vec![],
+            learnt: vec![],
         }
     }
 
@@ -76,6 +83,9 @@ impl Solver {
             self.watcher_clauses[(!clause[1]).watch_id()].push(clause_id);
         }
         self.clauses.push(clause);
+        self.cla_activity.add_entry();
+        self.cla_activity.bump(clause_id);
+        self.cla_erased.push(false);
         true
     }
 
@@ -84,6 +94,7 @@ impl Solver {
     }
 
     pub fn solve(&mut self) -> bool {
+        let mut cla_threshold = 100;  // TODO
         'outer:
         loop {
             if let Some(conflict) = self.propagate() {
@@ -110,19 +121,25 @@ impl Solver {
                     self.var_activity.bump(lit.var_id());
                 }
                 assert!(enq.is_some());
-                debug_assert!(self.queue.len() == self.trail_boundary[self.trail_boundary.len() - 1]);
                 while self.trail_boundary.len() as i32 > max_level {
                     self.pop_level();
                 }
                 self.queue_top = self.queue.len();
                 if learnt.len() >= 2 {
                     self.add_clause(learnt);
+                    self.learnt.push(self.clauses.len() - 1);
                     self.decide_checked(enq.unwrap(), Reason::Clause(self.clauses.len() - 1));
                 } else {
                     self.add_clause(learnt);
                 }
                 self.var_activity.decay();
+                self.cla_activity.decay();
             } else {
+                if self.clauses.len() > cla_threshold {
+                    self.reduce_db();
+                    cla_threshold = ((cla_threshold as f64) * 1.1f64) as usize;
+                }
+
                 // branch
                 let pivot = self.var_activity.find_undecided(self);
                 match pivot {
@@ -203,10 +220,16 @@ impl Solver {
 
             for i in 0..watchers.len() {
                 let clause_id = watchers[i];
+                if self.cla_erased[clause_id] {
+                    continue;
+                }
                 if !self.propagate_clause(clause_id, lit) {
                     // reinsert remaining watchers
                     for j in (i + 1)..watchers.len() {
-                        self.watcher_clauses[watch_id].push(watchers[j]);
+                        let w = watchers[j];
+                        if !self.cla_erased[w] {
+                            self.watcher_clauses[watch_id].push(w);
+                        }
                     }
                     self.queue_top = self.queue.len();
                     return Some(Reason::Clause(clause_id));
@@ -233,6 +256,7 @@ impl Solver {
                     Reason::Clause(c) => c,
                     _ => panic!(),
                 };
+                self.cla_activity.bump(conflict);
                 for &lit in &self.clauses[conflict] {
                     if Some(lit) != p {
                         debug_assert!(p.is_none() || p.unwrap().var() != lit.var());
@@ -295,6 +319,27 @@ impl Solver {
         self.watcher_clauses[p.watch_id()].push(clause_id);
         return self.decide_checked(self.clauses[clause_id][0], Reason::Clause(clause_id))
     }
+
+    fn reduce_db(&mut self) {
+        {
+            let cla_activity = &self.cla_activity;
+            self.learnt.sort_by(|&x, &y| {
+                cla_activity[x].partial_cmp(&cla_activity[y]).unwrap().reverse()
+            });
+        }
+        let mut learnt_nxt = vec![];
+        let threshold = self.learnt.len() / 2;
+        for &c in &self.learnt {
+            debug_assert!(!self.cla_erased[c]);
+            let is_locked = (&self.clauses[c]).into_iter().any(|lit| self.reason[lit.var_id()] == Reason::Clause(c));
+            if is_locked || learnt_nxt.len() < threshold {
+                learnt_nxt.push(c);
+            } else {
+                self.cla_erased[c] = true;
+            }
+        }
+        self.learnt = learnt_nxt;
+    }
 }
 
 const ACTIVITY_THRESHOLD: f64 = 1e100;
@@ -348,5 +393,13 @@ impl Activity {
             }
         }
         best.map(|i| Var(i as i32))
+    }
+}
+
+impl Index<usize> for Activity {
+    type Output = f64;
+
+    fn index(&self, i: usize) -> &f64 {
+        &self.activity[i]
     }
 }
