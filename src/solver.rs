@@ -69,7 +69,7 @@ impl Solver {
         self.assignment.len() as i32
     }
 
-    pub fn add_clause(&mut self, clause: Clause) -> bool {
+    pub fn add_clause(&mut self, mut clause: Clause) -> bool {
         let clause_id = self.clauses.len();
         if clause.len() == 0 {
             return false;
@@ -80,6 +80,17 @@ impl Solver {
         // TODO: choose better watcher for learnt clauses
         self.watcher_clauses[(!clause[0]).watch_id()].push(clause_id);
         if clause.len() >= 2 {
+            let mut max_i = 1;
+            let mut max_level = self.level[clause[1].var_id()];
+            for i in 2..clause.len() {
+                if max_level < self.level[clause[i].var_id()] {
+                    max_i = i;
+                    max_level = self.level[clause[i].var_id()];
+                }
+            }
+            if max_i != 1 {
+                clause.swap(1, max_i);
+            }
             self.watcher_clauses[(!clause[1]).watch_id()].push(clause_id);
         }
         self.clauses.push(clause);
@@ -245,7 +256,7 @@ impl Solver {
         let mut visited = vec![false; self.num_var() as usize];
         let mut counter = 0;
 
-        let mut ret = vec![];
+        let mut ret = vec![Literal(0)];
         while !self.queue.is_empty() {
             if let Some(l) = p {
                 visited[l.var_id()] = false;
@@ -284,7 +295,7 @@ impl Solver {
             p = Some(pb);
             counter -= 1;
             if counter == 0 {
-                ret.push(!p.unwrap());
+                ret[0] = !p.unwrap();
                 break;
             }
             debug_assert!(self.reason[self.queue[self.queue.len() - 1].var_id()] != Reason::Branch);
@@ -292,8 +303,6 @@ impl Solver {
             conflict = self.reason[var_id];
             self.pop_queue();
         }
-        // TODO: this must be unnecessary but removing this worsens the performance significantly
-        ret.sort_by(|x, y| x.var_id().cmp(&(y.var_id())));
         ret
     }
 
