@@ -109,14 +109,30 @@ impl Solver {
     }
 
     pub fn solve(&mut self) -> bool {
-        let mut cla_threshold = 100;  // TODO
+        let mut confl_threshold = 100u64;
+        let mut learnt_threshold = self.clauses.len() as u64 / 3;
+
+        loop {
+            match self.search(confl_threshold, learnt_threshold) {
+                Value::True => return true,
+                Value::False => return false,
+                Value::Undet => (),
+            }
+            confl_threshold = (confl_threshold as f64 * 1.5f64) as u64;
+            learnt_threshold = (learnt_threshold as f64 * 1.1f64) as u64;
+        }
+    }
+
+    pub fn search(&mut self, confl_threshold: u64, learnt_threshold: u64) -> Value {
+        let mut n_confl = 0;
         'outer:
         loop {
             if let Some(conflict) = self.propagate() {
                 if self.trail_boundary.len() == 0 {
-                    return false;
+                    return Value::False;
                 }
 
+                n_confl += 1;
                 // inconsistent
                 let learnt = self.analyze(conflict);
                 self.pop_level();
@@ -150,9 +166,14 @@ impl Solver {
                 self.var_activity.decay();
                 self.cla_activity.decay();
             } else {
-                if self.clauses.len() > cla_threshold {
+                if n_confl > confl_threshold {
+                    while self.trail_boundary.len() > 0 {
+                        self.pop_level();
+                    }
+                    return Value::Undet;
+                }
+                if self.learnt.len() as u64 > learnt_threshold {
                     self.reduce_db();
-                    cla_threshold = ((cla_threshold as f64) * 1.1f64) as usize;
                 }
 
                 // branch
@@ -163,7 +184,7 @@ impl Solver {
                         continue 'outer;
                     }
                     None => {
-                        return true;
+                        return Value::True;
                     }
                 }
             }
@@ -341,14 +362,15 @@ impl Solver {
             });
         }
         let mut learnt_nxt = vec![];
-        let threshold = self.learnt.len() / 2;
-        for &c in &self.learnt {
-            debug_assert!(!self.cla_erased[c]);
+        let threshold = self.cla_activity.var_inc / self.learnt.len() as f64;
+        for i in 0..self.learnt.len() {
+            let c = self.learnt[i];
             let is_locked = (&self.clauses[c]).into_iter().any(|lit| self.reason[lit.var_id()] == Reason::Clause(c));
-            if is_locked || learnt_nxt.len() < threshold {
-                learnt_nxt.push(c);
-            } else {
+
+            if !is_locked && (i < self.learnt.len() / 2 || self.cla_activity[c] < threshold) {
                 self.cla_erased[c] = true;
+            } else {
+                learnt_nxt.push(c);
             }
         }
         self.learnt = learnt_nxt;
