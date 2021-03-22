@@ -1,3 +1,7 @@
+/*
+An implementation of SAT solver, based on "An Extensible SAT-solver" (Niklas Een, Niklas Sörensson, SAT 2003)
+*/
+
 use crate::*;
 use std::ops::Index;
 
