@@ -93,47 +93,35 @@ impl Solver {
 
                 // inconsistent
                 let learnt = self.analyze(conflict);
-                loop {
-                    if self.queue.is_empty() {
-                        break;
+                self.pop_level();
+                let mut enq = None;
+                let mut max_level = 0;
+                for &lit in &learnt {
+                    match self.get_assignment_lit(lit) {
+                        Value::True => panic!(),
+                        Value::False => {
+                            max_level = max_level.max(self.level[lit.var_id()]);
+                        },
+                        Value::Undet => match enq {
+                            Some(_) => panic!(),
+                            None => enq = Some(lit),
+                        }
                     }
-                    let lit = self.queue[self.queue.len() - 1];
-                    let var_id = lit.var_id();
-                    let reason = self.reason[var_id];
-                    self.pop_queue();
-                    if reason == Reason::Branch {
-                        let mut enq = None;
-                        let mut max_level = 0;
-                        for &lit in &learnt {
-                            match self.get_assignment_lit(lit) {
-                                Value::True => panic!(),
-                                Value::False => {
-                                    max_level = max_level.max(self.level[lit.var_id()]);
-                                },
-                                Value::Undet => match enq {
-                                    Some(_) => panic!(),
-                                    None => enq = Some(lit),
-                                }
-                            }
-                            self.var_activity.bump(lit.var_id());
-                        }
-                        assert!(enq.is_some());
-                        debug_assert!(self.queue.len() == self.trail_boundary[self.trail_boundary.len() - 1]);
-                        while self.trail_boundary.len() as i32 > max_level {
-                            self.pop_level();
-                        }
-                        self.queue_top = self.queue.len();
-                        if learnt.len() >= 2 {
-                            self.add_clause(learnt);
-                            self.decide_checked(enq.unwrap(), Reason::Clause(self.clauses.len() - 1));
-                        } else {
-                            self.add_clause(learnt);
-                        }
-                        self.var_activity.decay();
-                        continue 'outer;
-                    }
+                    self.var_activity.bump(lit.var_id());
                 }
-                return false;
+                assert!(enq.is_some());
+                debug_assert!(self.queue.len() == self.trail_boundary[self.trail_boundary.len() - 1]);
+                while self.trail_boundary.len() as i32 > max_level {
+                    self.pop_level();
+                }
+                self.queue_top = self.queue.len();
+                if learnt.len() >= 2 {
+                    self.add_clause(learnt);
+                    self.decide_checked(enq.unwrap(), Reason::Clause(self.clauses.len() - 1));
+                } else {
+                    self.add_clause(learnt);
+                }
+                self.var_activity.decay();
             } else {
                 // branch
                 let pivot = self.var_activity.find_undecided(self);
