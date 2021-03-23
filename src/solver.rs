@@ -137,6 +137,7 @@ impl Solver {
 
         loop {
             self.stats.n_restart += 1;
+            self.queue_top = 0;  // TODO: should be verified
             match self.search(confl_threshold, learnt_threshold) {
                 Value::True => return true,
                 Value::False => return false,
