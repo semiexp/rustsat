@@ -176,7 +176,6 @@ impl Solver {
                             None => enq = Some(lit),
                         }
                     }
-                    self.var_activity.bump(lit.var_id());
                 }
                 assert!(enq.is_some());
                 while self.trail_boundary.len() as i32 > max_level {
@@ -188,7 +187,7 @@ impl Solver {
                     self.learnt.push(self.clauses.len() - 1);
                     self.decide_checked(enq.unwrap(), Reason::Clause(self.clauses.len() - 1));
                 } else {
-                    self.add_clause(learnt);
+                    assert!(self.add_clause(learnt));
                 }
                 self.var_activity.decay();
                 self.cla_activity.decay();
@@ -325,6 +324,7 @@ impl Solver {
                     if Some(lit) != p {
                         debug_assert!(p.is_none() || p.unwrap().var() != lit.var());
                         reason.push(lit);
+                        self.var_activity.bump(lit.var_id());
                     }
                 }
             }
@@ -386,7 +386,7 @@ impl Solver {
         {
             let cla_activity = &self.cla_activity;
             self.learnt.sort_by(|&x, &y| {
-                cla_activity[x].partial_cmp(&cla_activity[y]).unwrap().reverse()
+                cla_activity[x].partial_cmp(&cla_activity[y]).unwrap()
             });
         }
         let mut learnt_nxt = vec![];
