@@ -198,7 +198,7 @@ impl Solver {
                     }
                     return Value::Undet;
                 }
-                if self.learnt.len() as u64 > learnt_threshold {
+                if self.learnt.len() as i64 - self.queue.len() as i64 > learnt_threshold as i64 {
                     self.reduce_db();
                 }
 
@@ -324,13 +324,13 @@ impl Solver {
                     if Some(lit) != p {
                         debug_assert!(p.is_none() || p.unwrap().var() != lit.var());
                         reason.push(lit);
-                        self.var_activity.bump(lit.var_id());
                     }
                 }
             }
             for lit in reason {
                 let var_id = lit.var_id();
                 if !visited[var_id] {
+                    self.var_activity.bump(lit.var_id());
                     if self.level[var_id] == self.trail_boundary.len() as i32 {
                         counter += 1;
                     } else {
